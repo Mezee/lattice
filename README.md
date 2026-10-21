@@ -5,7 +5,9 @@ Speech for your Mac, powered by [Phonon](https://github.com/gradium-ai/xn-ptts).
 Highlight text in any Mac app, press a shortcut, and hear it read aloud by a fast, fully offline neural voice, while a
 small floating bar shows the words one at a time, in sync with the voice.
 
-<!-- demo.gif goes here -->
+[![Lattice reading a short note aloud, one word at a time](docs/demo.gif)](docs/demo.mp4)
+
+<sub>Click the preview for the full 24-second demo, with sound.</sub>
 
 - **Works anywhere.** Select text in any app, press **⌃⌥R**.
 - **One word at a time.** The current word sits on a fixed centre line with its focus letter in lime green, in the style of
