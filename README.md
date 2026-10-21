@@ -8,7 +8,7 @@ small floating bar shows the words one at a time, in sync with the voice.
 <!-- demo.gif goes here -->
 
 - **Works anywhere.** Select text in any app, press **⌃⌥R**.
-- **One word at a time.** The current word sits on a fixed centre line with its focus letter in red, in the style of
+- **One word at a time.** The current word sits on a fixed centre line with its focus letter in lime green, in the style of
   [word-reader](https://github.com/ssharples/word-reader). Word changes follow the actual audio, not a guess.
 - **Media controls.** Pause, skip back and skip forward by sentence, or stop, from the floating bar. Drag it anywhere; it
   remembers its place.

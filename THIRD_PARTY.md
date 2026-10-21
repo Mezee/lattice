@@ -1,7 +1,7 @@
 # Third-party notices
 
 ## word-reader (MIT)
-The one-word-at-a-time display (focus-letter position rule, colours, guide lines) follows
+The one-word-at-a-time display (focus-letter position rule, guide lines) follows
 [ssharples/word-reader](https://github.com/ssharples/word-reader).
 
 > MIT License. Copyright (c) 2026 ssharples

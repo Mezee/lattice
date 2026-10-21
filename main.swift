@@ -457,7 +457,7 @@ func focusSplit(_ word: String) -> (String, String, String) {
 final class WordView: NSView {
     var word = "" { didSet { needsDisplay = true } }
     let ink = NSColor(srgbRed: 0.90, green: 0.89, blue: 0.86, alpha: 1)
-    let focus = NSColor(srgbRed: 1.0, green: 0.45, blue: 0.38, alpha: 1)
+    let focus = NSColor(srgbRed: 218.0 / 255, green: 1.0, blue: 82.0 / 255, alpha: 1) // #DAFF52
     let guide = NSColor(white: 1, alpha: 0.18)
 
     override func draw(_ dirty: NSRect) {
