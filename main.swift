@@ -266,7 +266,7 @@ func selectedText() -> String? {
     return text
 }
 
-final class App: NSObject, NSApplicationDelegate {
+final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let reader = Reader()
     let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     var voiceMenu = NSMenu()
@@ -277,6 +277,7 @@ final class App: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ n: Notification) {
         if pttsPath == nil { missingPtts() }
         else if !AXIsProcessTrusted() { _ = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary) }
+        mainMenu.delegate = self
         buildMenu()
         hud = HUD(reader: reader)
         reader.onChange = { [weak self] in self?.refreshTitle(); self?.hud?.sync() }
@@ -291,28 +292,64 @@ final class App: NSObject, NSApplicationDelegate {
         item.button?.toolTip = r.isActive ? "Sentence \(r.index + 1) of \(r.sentences.count)" : "Lattice"
     }
 
+    /// Menu key-equivalent for a recorded shortcut, so macOS right-aligns it like any native shortcut.
+    func keyEquivalent(for sc: Shortcut) -> (String, NSEvent.ModifierFlags)? {
+        var flags: NSEvent.ModifierFlags = []
+        if sc.mods & UInt32(controlKey) != 0 { flags.insert(.control) }
+        if sc.mods & UInt32(optionKey) != 0 { flags.insert(.option) }
+        if sc.mods & UInt32(shiftKey) != 0 { flags.insert(.shift) }
+        if sc.mods & UInt32(cmdKey) != 0 { flags.insert(.command) }
+        let special: [String: Int] = ["←": NSLeftArrowFunctionKey, "→": NSRightArrowFunctionKey, "↑": NSUpArrowFunctionKey, "↓": NSDownArrowFunctionKey]
+        switch sc.label {
+        case "Space": return (" ", flags)
+        case "Return": return ("\r", flags)
+        case "Tab": return ("\t", flags)
+        case let l where special[l] != nil: return (String(UnicodeScalar(special[l]!)!), flags)
+        case let l where l.count == 1: return (l.lowercased(), flags)
+        default: return nil
+        }
+    }
+
     func buildMenu() {
         let m = mainMenu
         m.removeAllItems()
-        func add(_ t: String, _ sel: Selector, _ key: String) {
+        func add(_ t: String, _ sel: Selector, to menu: NSMenu? = nil) {
             let mi = NSMenuItem(title: t, action: sel, keyEquivalent: ""); mi.target = self
-            mi.toolTip = key; m.addItem(mi)
+            (menu ?? m).addItem(mi)
         }
-        for a in Shortcut.actions { add("\(a.title)   \(Shortcut.load(a.key).display)", #selector(readSel), "") }
-        add("Pause / Resume", #selector(pause), "")
-        add("Previous Sentence", #selector(prev), "")
-        add("Next Sentence", #selector(nextS), "")
-        add("Stop", #selector(stopS), "")
+
+        // Reading
+        let read = NSMenuItem(title: reader.isActive && !reader.isPaused ? "Stop Reading" : "Read Selection", action: #selector(readSel), keyEquivalent: "")
+        read.target = self
+        let sc = Shortcut.load("read")
+        if let (k, flags) = keyEquivalent(for: sc) { read.keyEquivalent = k; read.keyEquivalentModifierMask = flags }
+        else { read.title += "   \(sc.display)" }
+        m.addItem(read)
+
+        // Playback controls are on the floating bar, so the menu only offers them while reading.
+        if reader.isActive {
+            m.addItem(.separator())
+            add(reader.isPaused ? "Resume" : "Pause", #selector(pause))
+            add("Previous Sentence", #selector(prev))
+            add("Next Sentence", #selector(nextS))
+        }
+
+        // Settings
         m.addItem(.separator())
-        add("Shortcuts…", #selector(showShortcuts), "")
-        add("Edit Pronunciations…", #selector(editPron), "")
-        add("Accent Color…", #selector(pickAccent), "")
-        add("Reset Accent Color", #selector(resetAccent), "")
         m.addItem(voiceItem)
+        let accent = NSMenuItem(title: "Accent Color", action: nil, keyEquivalent: ""); let am = NSMenu()
+        add("Choose…", #selector(pickAccent), to: am); add("Reset to Default", #selector(resetAccent), to: am)
+        accent.submenu = am; m.addItem(accent)
+        add("Shortcuts…", #selector(showShortcuts))
+        add("Pronunciations…", #selector(editPron))
+
         m.addItem(.separator())
-        m.addItem(withTitle: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        let quit = NSMenuItem(title: "Quit Lattice", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        m.addItem(quit)
         if item.menu !== m { item.menu = m }
     }
+
+    func menuNeedsUpdate(_ menu: NSMenu) { if menu === mainMenu { buildMenu() } }
 
     func loadVoices() {
         let p = Process(); p.executableURL = URL(fileURLWithPath: pttsPath ?? "/usr/bin/false"); p.arguments = ["--list-voices"]
