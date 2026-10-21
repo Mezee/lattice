@@ -9,7 +9,7 @@ small floating bar shows the words one at a time, in sync with the voice.
 
 [![Lattice reading a short note aloud, one word at a time](docs/demo.gif)](docs/demo.mp4)
 
-<sub>Click the preview for the full 24-second demo, with sound.</sub>
+<sub>Click the preview for the full 26-second demo, with sound.</sub>
 
 - **Works anywhere.** Select text in any app, press **⌃⌥R**.
 - **One word at a time.** The current word sits on a fixed centre line with its focus letter in lime green, in the style of

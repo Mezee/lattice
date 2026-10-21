@@ -341,6 +341,9 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let accent = NSMenuItem(title: "Accent Color", action: nil, keyEquivalent: ""); let am = NSMenu()
         add("Choose…", #selector(pickAccent), to: am); add("Reset to Default", #selector(resetAccent), to: am)
         accent.submenu = am; m.addItem(accent)
+        let glassItem = NSMenuItem(title: "Liquid Glass Bar", action: #selector(toggleGlass), keyEquivalent: ""); glassItem.target = self
+        glassItem.state = (UserDefaults.standard.object(forKey: "glass") as? Bool ?? true) ? .on : .off
+        m.addItem(glassItem)
         add("Shortcuts…", #selector(showShortcuts))
         add("Pronunciations…", #selector(editPron))
 
@@ -471,6 +474,12 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc func accentChanged(_ p: NSColorPanel) {
         saveAccent(p.color)
         hud?.wordView.needsDisplay = true
+    }
+
+    @objc func toggleGlass() {
+        let on = UserDefaults.standard.object(forKey: "glass") as? Bool ?? true
+        UserDefaults.standard.set(!on, forKey: "glass")
+        hud?.applyStyle()
     }
 
     @objc func resetAccent() {
@@ -617,6 +626,7 @@ final class HUD: NSPanel {
     let wordView = WordView(frame: NSRect(x: 0, y: 56, width: 440, height: 84))
     let progress = NSTextField(labelWithString: "")
     var playPauseButton: NSButton?
+    let container = NSView(frame: NSRect(x: 0, y: 0, width: 440, height: 150))
     var shown = false
     var timer: Timer?
     var boundsFor = -1
@@ -643,27 +653,11 @@ final class HUD: NSPanel {
         setFrameAutosaveName("PhononReaderHUD")
         setContentSize(NSSize(width: 440, height: 150))
 
-        let bg = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: 440, height: 150))
-        bg.material = .hudWindow; bg.state = .active; bg.blendingMode = .behindWindow
-        let r: CGFloat = 18
-        let mask = NSImage(size: NSSize(width: r * 2 + 1, height: r * 2 + 1), flipped: false) { rect in
-            NSColor.black.setFill(); NSBezierPath(roundedRect: rect, xRadius: r, yRadius: r).fill(); return true
-        }
-        mask.capInsets = NSEdgeInsets(top: r, left: r, bottom: r, right: r)
-        mask.resizingMode = .stretch
-        bg.maskImage = mask
-        contentView = bg
-        let tint = NSView(frame: bg.bounds)
-        tint.autoresizingMask = [.width, .height]
-        tint.wantsLayer = true
-        tint.layer?.backgroundColor = NSColor(srgbRed: 0.106, green: 0.106, blue: 0.114, alpha: 0.93).cgColor
-        tint.layer?.cornerRadius = r; tint.layer?.masksToBounds = true
-        bg.addSubview(tint)
-        bg.addSubview(wordView)
+        container.addSubview(wordView)
 
         progress.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular); progress.textColor = NSColor(white: 1, alpha: 0.6)
         progress.frame = NSRect(x: 20, y: 20, width: 90, height: 16)
-        bg.addSubview(progress)
+        container.addSubview(progress)
 
         func make(_ symbol: String, _ x: CGFloat, _ size: CGFloat, _ action: Selector) -> NSButton {
             let b = NSButton(frame: NSRect(x: x, y: 12, width: size, height: 36))
@@ -671,12 +665,54 @@ final class HUD: NSPanel {
             b.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
                 .withSymbolConfiguration(.init(pointSize: size > 40 ? 24 : 18, weight: .regular))
             b.contentTintColor = .labelColor; b.target = self; b.action = action
-            bg.addSubview(b); return b
+            container.addSubview(b); return b
         }
         _ = make("backward.fill", 150, 44, #selector(back))
         playPauseButton = make("pause.fill", 198, 44, #selector(toggle))
         _ = make("forward.fill", 246, 44, #selector(fwd))
         _ = make("xmark", 388, 36, #selector(close2))
+        applyStyle()
+    }
+
+    /// Liquid Glass (macOS 26) by default; a solid dark bar if switched off in the menu.
+    func applyStyle() {
+        container.removeFromSuperview()
+        let frame = NSRect(x: 0, y: 0, width: 440, height: 150)
+        if UserDefaults.standard.object(forKey: "glass") as? Bool ?? true {
+            let g = NSGlassEffectView(frame: frame)
+            g.cornerRadius = 22
+            g.tintColor = NSColor(srgbRed: 0.06, green: 0.06, blue: 0.07, alpha: 0.88)
+            hasShadow = false   // the glass draws its own edge; the window shadow showed as an outline at the corners
+            // The glass ignores most of its tint, so a dark layer under the controls guarantees contrast.
+            container.wantsLayer = true
+            container.layer?.backgroundColor = NSColor(srgbRed: 0.06, green: 0.06, blue: 0.07, alpha: 0.80).cgColor
+            container.layer?.cornerRadius = 22; container.layer?.masksToBounds = true
+            g.contentView = container
+            contentView = g
+        } else {
+            hasShadow = true
+            let bg = NSVisualEffectView(frame: frame)
+            bg.material = .hudWindow; bg.state = .active; bg.blendingMode = .behindWindow
+            let r: CGFloat = 18
+            let mask = NSImage(size: NSSize(width: r * 2 + 1, height: r * 2 + 1), flipped: false) { rect in
+                NSColor.black.setFill(); NSBezierPath(roundedRect: rect, xRadius: r, yRadius: r).fill(); return true
+            }
+            mask.capInsets = NSEdgeInsets(top: r, left: r, bottom: r, right: r)
+            mask.resizingMode = .stretch
+            bg.maskImage = mask
+            let tint = NSView(frame: frame)
+            tint.autoresizingMask = [.width, .height]
+            tint.wantsLayer = true
+            tint.layer?.backgroundColor = NSColor(srgbRed: 0.106, green: 0.106, blue: 0.114, alpha: 0.93).cgColor
+            tint.layer?.cornerRadius = r; tint.layer?.masksToBounds = true
+            bg.addSubview(tint)
+            container.wantsLayer = true
+            container.layer?.backgroundColor = nil
+            container.frame = frame
+            bg.addSubview(container)
+            contentView = bg
+        }
+        invalidateShadow()
     }
 
     override var canBecomeKey: Bool { false }
@@ -827,6 +863,12 @@ final class ShortcutsWindow: NSWindow {
         hint.font = .systemFont(ofSize: 11); hint.textColor = .secondaryLabelColor
         hint.frame = NSRect(x: 20, y: 10, width: 340, height: 16); contentView?.addSubview(hint)
         refresh()
+        if let old = contentView {
+            let g = NSGlassEffectView(frame: old.frame)
+            contentView = NSView()
+            g.contentView = old
+            contentView = g
+        }
     }
 
     func refresh() {
