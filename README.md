@@ -60,6 +60,7 @@ To start at login, add it under **System Settings → General → Login Items**.
 | Pause / resume | ⏯ on the bar |
 | Previous / next sentence | ⏮ / ⏭ on the bar |
 | Choose a voice | 🔈 → Voice |
+| Change the accent colour | 🔈 → Accent Color… (a sample word shows while you pick) |
 | Fix a pronunciation | 🔈 → Edit Pronunciations… |
 
 ### Pronunciations

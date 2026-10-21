@@ -306,6 +306,8 @@ final class App: NSObject, NSApplicationDelegate {
         m.addItem(.separator())
         add("Shortcuts…", #selector(showShortcuts), "")
         add("Edit Pronunciations…", #selector(editPron), "")
+        add("Accent Color…", #selector(pickAccent), "")
+        add("Reset Accent Color", #selector(resetAccent), "")
         m.addItem(voiceItem)
         m.addItem(.separator())
         m.addItem(withTitle: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
@@ -412,6 +414,33 @@ final class App: NSObject, NSApplicationDelegate {
         buildMenu()
     }
 
+    var colorObserver: Any?
+    @objc func pickAccent() {
+        NSApp.activate(ignoringOtherApps: true)
+        let p = NSColorPanel.shared
+        p.showsAlpha = false
+        p.color = accentColor()
+        p.setTarget(self); p.setAction(#selector(accentChanged(_:))); p.isContinuous = true
+        if colorObserver == nil {
+            colorObserver = NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: p, queue: .main) { [weak self] _ in
+                self?.hud?.sync()
+            }
+        }
+        hud?.preview()
+        p.makeKeyAndOrderFront(nil)
+    }
+
+    @objc func accentChanged(_ p: NSColorPanel) {
+        saveAccent(p.color)
+        hud?.wordView.needsDisplay = true
+    }
+
+    @objc func resetAccent() {
+        UserDefaults.standard.removeObject(forKey: "accent")
+        NSColorPanel.shared.color = defaultAccent
+        hud?.wordView.needsDisplay = true
+    }
+
     @objc func editPron() {
         _ = Pronounce.loadDictionary()
         NSWorkspace.shared.open(Pronounce.dictURL)
@@ -431,8 +460,8 @@ final class App: NSObject, NSApplicationDelegate {
     }
 }
 
-func serifFont(_ size: CGFloat) -> NSFont {
-    let base = NSFont.systemFont(ofSize: size, weight: .regular)
+func serifFont(_ size: CGFloat, _ weight: NSFont.Weight = .regular) -> NSFont {
+    let base = NSFont.systemFont(ofSize: size, weight: weight)
     if let d = base.fontDescriptor.withDesign(.serif), let f = NSFont(descriptor: d, size: size) { return f }
     return base
 }
@@ -454,11 +483,27 @@ func focusSplit(_ word: String) -> (String, String, String) {
     return (String(ch[..<f]), String(ch[f]), String(ch[(f + 1)...]))
 }
 
+let defaultAccent = NSColor(srgbRed: 218.0 / 255, green: 1.0, blue: 82.0 / 255, alpha: 1) // #DAFF52
+
+func accentColor() -> NSColor {
+    if let hex = UserDefaults.standard.string(forKey: "accent"), hex.count == 7, hex.hasPrefix("#"),
+       let v = UInt32(hex.dropFirst(), radix: 16) {
+        return NSColor(srgbRed: CGFloat((v >> 16) & 255) / 255, green: CGFloat((v >> 8) & 255) / 255, blue: CGFloat(v & 255) / 255, alpha: 1)
+    }
+    return defaultAccent
+}
+
+func saveAccent(_ c: NSColor) {
+    guard let c = c.usingColorSpace(.sRGB) else { return }
+    let hex = String(format: "#%02X%02X%02X", Int(round(c.redComponent * 255)), Int(round(c.greenComponent * 255)), Int(round(c.blueComponent * 255)))
+    UserDefaults.standard.set(hex, forKey: "accent")
+}
+
 final class WordView: NSView {
     var word = "" { didSet { needsDisplay = true } }
     let ink = NSColor(srgbRed: 0.90, green: 0.89, blue: 0.86, alpha: 1)
-    let focus = NSColor(srgbRed: 218.0 / 255, green: 1.0, blue: 82.0 / 255, alpha: 1) // #DAFF52
-    let guide = NSColor(white: 1, alpha: 0.18)
+    var focus: NSColor { accentColor() }
+    let guide = NSColor(white: 1, alpha: 0.35)
 
     override func draw(_ dirty: NSRect) {
         let cx = bounds.midX, margin: CGFloat = 20
@@ -473,18 +518,18 @@ final class WordView: NSView {
         guard !mid.isEmpty else { return }
         var size: CGFloat = 38
         func w(_ t: String, _ f: NSFont) -> CGFloat { (t as NSString).size(withAttributes: [.font: f]).width }
-        var font = serifFont(size)
+        var font = serifFont(size, .medium), bold = serifFont(size, .bold)
         let half = cx - margin - 8
-        let needed = max(w(before, font), w(after, font)) + w(mid, font) / 2
-        if needed > half { size = max(14, size * half / needed); font = serifFont(size) }
-        let fw = w(mid, font)
-        let y = bounds.midY - (font.ascender - font.descender) / 2 - font.descender * 0
-        func draw(_ t: String, _ x: CGFloat, _ c: NSColor) {
-            (t as NSString).draw(at: NSPoint(x: x, y: y), withAttributes: [.font: font, .foregroundColor: c])
+        let needed = max(w(before, font), w(after, font)) + w(mid, bold) / 2
+        if needed > half { size = max(14, size * half / needed); font = serifFont(size, .medium); bold = serifFont(size, .bold) }
+        let fw = w(mid, bold)
+        let y = bounds.midY - (font.ascender - font.descender) / 2
+        func draw(_ t: String, _ x: CGFloat, _ c: NSColor, _ f: NSFont) {
+            (t as NSString).draw(at: NSPoint(x: x, y: y), withAttributes: [.font: f, .foregroundColor: c])
         }
-        draw(before, cx - fw / 2 - w(before, font), ink)
-        draw(mid, cx - fw / 2, focus)
-        draw(after, cx + fw / 2, ink)
+        draw(before, cx - fw / 2 - w(before, font), ink, font)
+        draw(mid, cx - fw / 2, focus, bold)
+        draw(after, cx + fw / 2, ink, font)
     }
 }
 
@@ -537,7 +582,7 @@ final class HUD: NSPanel {
         bg.addSubview(tint)
         bg.addSubview(wordView)
 
-        progress.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular); progress.textColor = .tertiaryLabelColor
+        progress.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular); progress.textColor = NSColor(white: 1, alpha: 0.6)
         progress.frame = NSRect(x: 20, y: 20, width: 90, height: 16)
         bg.addSubview(progress)
 
@@ -595,6 +640,20 @@ final class HUD: NSPanel {
             i = cum.firstIndex(where: { frac < $0 }) ?? words.count - 1
         }
         if wordView.word != words[i] { wordView.word = words[i] }
+    }
+
+    /// Shows the bar with a sample word while the colour picker is open.
+    func preview() {
+        guard !reader.isActive else { return }
+        wordView.word = "universally"; progress.stringValue = "1 / 1"
+        if !shown {
+            shown = true
+            if !NSScreen.screens.contains(where: { $0.visibleFrame.intersects(frame) }), let scr = NSScreen.main {
+                let f = scr.visibleFrame
+                setFrameOrigin(NSPoint(x: f.midX - frame.width / 2, y: f.minY + 60))
+            }
+            alphaValue = 1; orderFrontRegardless(); invalidateShadow()
+        }
     }
 
     func sync() {
