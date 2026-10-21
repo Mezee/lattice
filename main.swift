@@ -288,7 +288,8 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func refreshTitle() {
         let r = reader
-        item.button?.title = !r.isActive ? "🔈" : r.isPaused ? "⏸" : "🔊"
+        item.button?.title = ""
+        item.button?.image = menuBarGlyph(!r.isActive ? 0 : r.isPaused ? 2 : 1)
         item.button?.toolTip = r.isActive ? "Sentence \(r.index + 1) of \(r.sentences.count)" : "Lattice"
     }
 
@@ -534,6 +535,47 @@ func saveAccent(_ c: NSColor) {
     guard let c = c.usingColorSpace(.sRGB) else { return }
     let hex = String(format: "#%02X%02X%02X", Int(round(c.redComponent * 255)), Int(round(c.greenComponent * 255)), Int(round(c.blueComponent * 255)))
     UserDefaults.standard.set(hex, forKey: "accent")
+}
+
+/// Menu-bar icon: the Lattice cube with its speech bubble, as a template image so macOS tints it. State: 0 idle, 1 reading, 2 paused.
+func menuBarGlyph(_ state: Int) -> NSImage {
+    let name = ["menubar-idle", "menubar-reading", "menubar-paused"][state]
+    if let url = Bundle.main.url(forResource: name, withExtension: "png"), let img = NSImage(contentsOf: url) {
+        img.size = NSSize(width: 18, height: 18)
+        img.isTemplate = true
+        return img
+    }
+    return fallbackGlyph(state)
+}
+
+/// Drawn stand-in used only if the bundled images are missing.
+func fallbackGlyph(_ state: Int) -> NSImage {
+    let img = NSImage(size: NSSize(width: 18, height: 18), flipped: false) { _ in
+        let c = NSPoint(x: 9, y: 9), r: CGFloat = 8.2
+        let hex = NSBezierPath()
+        for i in 0..<6 {
+            let a = (90.0 - 60.0 * Double(i)) * .pi / 180
+            let p = NSPoint(x: c.x + r * CGFloat(cos(a)), y: c.y + r * CGFloat(sin(a)))
+            i == 0 ? hex.move(to: p) : hex.line(to: p)
+        }
+        hex.close(); hex.lineJoinStyle = .round; hex.lineWidth = 1.4
+        NSColor.black.setFill(); NSColor.black.setStroke()
+        hex.fill(); hex.stroke()
+
+        let bubble = NSBezierPath(roundedRect: NSRect(x: 4.6, y: 6.4, width: 8.8, height: 6.0), xRadius: 1.6, yRadius: 1.6)
+        bubble.move(to: NSPoint(x: 6.0, y: 6.6)); bubble.line(to: NSPoint(x: 5.6, y: 4.6)); bubble.line(to: NSPoint(x: 8.0, y: 6.6)); bubble.close()
+        NSGraphicsContext.current?.compositingOperation = .clear
+        bubble.fill()
+        NSGraphicsContext.current?.compositingOperation = .sourceOver
+
+        NSColor.black.setFill()
+        func bar(_ x: CGFloat, _ h: CGFloat) { NSBezierPath(roundedRect: NSRect(x: x, y: 9.4 - h / 2, width: 1.2, height: h), xRadius: 0.6, yRadius: 0.6).fill() }
+        if state == 1 { bar(6.6, 2.0); bar(8.4, 3.6); bar(10.2, 2.6) }
+        if state == 2 { bar(7.4, 3.4); bar(9.8, 3.4) }
+        return true
+    }
+    img.isTemplate = true
+    return img
 }
 
 final class WordView: NSView {

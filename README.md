@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/icon-1024.png" width="120" alt="Lattice icon"></p>
+
 # Lattice
 
 Speech for your Mac, powered by [Phonon](https://github.com/gradium-ai/xn-ptts). (A phonon is a quantum of vibration in a lattice.)
