@@ -33,7 +33,12 @@ small floating bar shows the words one at a time, in sync with the voice.
 
 2. Get the app, either:
    - **Download** the latest zip from Releases, unzip it, and drag **Lattice** to Applications. The app isn't
-     notarized yet, so the first time, right-click it and choose **Open**.
+     notarized yet, so macOS will block the first launch. Either open **System Settings → Privacy & Security** and
+     click **Open Anyway**, or clear the download flag once in Terminal:
+
+     ```bash
+     xattr -dr com.apple.quarantine /Applications/Lattice.app
+     ```
    - **Build it** (needs the Xcode command line tools):
 
      ```bash
