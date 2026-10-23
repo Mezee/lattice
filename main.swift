@@ -248,7 +248,42 @@ final class Reader: NSObject, AVAudioPlayerDelegate {
     }
 }
 
+/// Best-effort read of the user's current selection via the Accessibility API.
+/// No clipboard involved, so it works even where simulated Cmd+C is swallowed
+/// (terminals, remote sessions, some IDEs). Returns nil when nothing exposes a selection.
+func axElement(_ ref: CFTypeRef?) -> AXUIElement? {
+    guard let ref, CFGetTypeID(ref) == AXUIElementGetTypeID() else { return nil }
+    return ref as! AXUIElement
+}
+
+func axSelectedText() -> String? {
+    let system = AXUIElementCreateSystemWide()
+    var appRef: CFTypeRef?
+    guard AXUIElementCopyAttributeValue(system, kAXFocusedApplicationAttribute as CFString, &appRef) == .success,
+          let app = axElement(appRef) else { return nil }
+    var focusedRef: CFTypeRef?
+    guard AXUIElementCopyAttributeValue(app, kAXFocusedUIElementAttribute as CFString, &focusedRef) == .success,
+          let focused = axElement(focusedRef) else { return nil }
+    // The focused element usually holds the selection; some apps put it one level up.
+    var candidates = [focused]
+    var parentRef: CFTypeRef?
+    if AXUIElementCopyAttributeValue(focused, kAXParentAttribute as CFString, &parentRef) == .success,
+       let parent = axElement(parentRef) { candidates.append(parent) }
+    for el in candidates {
+        var selRef: CFTypeRef?
+        if AXUIElementCopyAttributeValue(el, "AXSelectedText" as CFString, &selRef) == .success,
+           let s = selRef as? String, !s.isEmpty { return s }
+    }
+    return nil
+}
+
 func selectedText() -> String? {
+    // 1) Accessibility selection: no clipboard side effects, terminal-friendly.
+    if let s = axSelectedText() {
+        log("selectedText: ax api got \(s.count) chars")
+        return s
+    }
+    // 2) Fallback: send Cmd+C and read the clipboard (previous behavior).
     let pb = NSPasteboard.general
     let saved = pb.string(forType: .string)
     let before = pb.changeCount
@@ -261,7 +296,7 @@ func selectedText() -> String? {
     }
     for _ in 0..<20 where pb.changeCount == before { Thread.sleep(forTimeInterval: 0.025) }
     let text = pb.changeCount != before ? pb.string(forType: .string) : nil
-    log("selectedText: got \(text?.count ?? -1) chars")
+    log("selectedText: clip fallback got \(text?.count ?? -1) chars")
     if let saved, text != nil { pb.clearContents(); pb.setString(saved, forType: .string) }
     return text
 }
@@ -410,7 +445,13 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if reader.isActive && !reader.isPaused { reader.stop(); return }
         guard AXIsProcessTrusted() else { needAccessibility(); return }
         DispatchQueue.global().async {
-            if let t = selectedText(), !t.isEmpty { DispatchQueue.main.async { self.reader.start(text: t) } }
+            if let t = selectedText(), !t.isEmpty { DispatchQueue.main.async { self.reader.start(text: t) }; return }
+            // Last resort: you highlighted + Cmd+C'd yourself before hitting the hotkey.
+            // (The Cmd+C simulation above is a no-op in that case, so the clipboard didn't change.)
+            if let c = NSPasteboard.general.string(forType: .string), !c.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                log("readSel: using clipboard as-is (\(c.count) chars)")
+                DispatchQueue.main.async { self.reader.start(text: c) }
+            } else { log("readSel: nothing selected, clipboard empty") }
         }
     }
     @objc func pause() { reader.togglePause() }
