@@ -2,10 +2,11 @@
 # Builds Lattice.app. Usage: ./build.sh [--zip]
 set -e
 cd "$(dirname "$0")"
-VERSION="0.1.2"
+VERSION="0.1.3"
 APP="${APP_DIR:-$HOME/Applications}/Lattice.app"
-rm -rf "$APP"; mkdir -p "$APP/Contents/MacOS"
+# Compile first, so a failed build never removes an installed app.
 swiftc -O -target arm64-apple-macos26.0 main.swift -o .build-arm64
+rm -rf "$APP"; mkdir -p "$APP/Contents/MacOS"
 swiftc -O -target x86_64-apple-macos26.0 main.swift -o .build-x86 2>/dev/null && lipo -create .build-arm64 .build-x86 -output "$APP/Contents/MacOS/Lattice" || cp .build-arm64 "$APP/Contents/MacOS/Lattice"
 rm -f .build-arm64 .build-x86
 mkdir -p "$APP/Contents/Resources"

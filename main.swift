@@ -256,25 +256,113 @@ func axElement(_ ref: CFTypeRef?) -> AXUIElement? {
     return ref as! AXUIElement
 }
 
-func axSelectedText() -> String? {
+func axSelectedText(verbose: Bool = true) -> String? {
+    func vlog(_ m: String) { if verbose { log(m) } }
+    let front = NSWorkspace.shared.frontmostApplication?.localizedName ?? "?"
     let system = AXUIElementCreateSystemWide()
     var appRef: CFTypeRef?
-    guard AXUIElementCopyAttributeValue(system, kAXFocusedApplicationAttribute as CFString, &appRef) == .success,
-          let app = axElement(appRef) else { return nil }
+    let e1 = AXUIElementCopyAttributeValue(system, kAXFocusedApplicationAttribute as CFString, &appRef)
+    guard e1 == .success, let app = axElement(appRef) else { vlog("ax[\(front)]: no focused app (err \(e1.rawValue))"); return nil }
     var focusedRef: CFTypeRef?
-    guard AXUIElementCopyAttributeValue(app, kAXFocusedUIElementAttribute as CFString, &focusedRef) == .success,
-          let focused = axElement(focusedRef) else { return nil }
+    let e2 = AXUIElementCopyAttributeValue(app, kAXFocusedUIElementAttribute as CFString, &focusedRef)
+    guard e2 == .success, let focused = axElement(focusedRef) else { vlog("ax[\(front)]: no focused element (err \(e2.rawValue))"); return nil }
     // The focused element usually holds the selection; some apps put it one level up.
     var candidates = [focused]
     var parentRef: CFTypeRef?
     if AXUIElementCopyAttributeValue(focused, kAXParentAttribute as CFString, &parentRef) == .success,
        let parent = axElement(parentRef) { candidates.append(parent) }
-    for el in candidates {
+    for (i, el) in candidates.enumerated() {
+        var roleRef: CFTypeRef?
+        _ = AXUIElementCopyAttributeValue(el, kAXRoleAttribute as CFString, &roleRef)
         var selRef: CFTypeRef?
-        if AXUIElementCopyAttributeValue(el, "AXSelectedText" as CFString, &selRef) == .success,
-           let s = selRef as? String, !s.isEmpty { return s }
+        let e3 = AXUIElementCopyAttributeValue(el, "AXSelectedText" as CFString, &selRef)
+        let s = selRef as? String
+        vlog("ax[\(front)]: candidate \(i) role=\((roleRef as? String) ?? "?") AXSelectedText err=\(e3.rawValue) chars=\(s?.count ?? -1)")
+        if e3 == .success, let s, !s.isEmpty { return s }
+        // Some apps (Terminal) report the selection only as a range into the element's text.
+        var rangeRef: CFTypeRef?, valueRef: CFTypeRef?
+        let e4 = AXUIElementCopyAttributeValue(el, "AXSelectedTextRange" as CFString, &rangeRef)
+        let e5 = AXUIElementCopyAttributeValue(el, kAXValueAttribute as CFString, &valueRef)
+        var range = CFRange(location: 0, length: 0)
+        let haveRange = e4 == .success && rangeRef != nil && CFGetTypeID(rangeRef!) == AXValueGetTypeID()
+            && AXValueGetValue(rangeRef as! AXValue, .cfRange, &range)
+        let text = valueRef as? String
+        vlog("ax[\(front)]: candidate \(i) range err=\(e4.rawValue) loc=\(range.location) len=\(range.length) value err=\(e5.rawValue) chars=\(text?.count ?? -1)")
+        if haveRange, range.length > 0, let text {
+            let ns = text as NSString
+            if range.location >= 0, range.location + range.length <= ns.length {
+                let sub = ns.substring(with: NSRange(location: range.location, length: range.length))
+                if !sub.isEmpty { return sub }
+            }
+        }
     }
     return nil
+}
+
+/// Terminals don't expose their selection and ignore the simulated Cmd+C, so for them Lattice reads what you
+/// just copied yourself. To keep that safe, it only applies in terminal apps and only to a recent copy.
+let terminalBundleIDs: Set<String> = [
+    "com.apple.Terminal", "com.mitchellh.ghostty", "com.googlecode.iterm2", "net.kovidgoyal.kitty",
+    "org.alacritty", "com.github.wez.wezterm", "dev.warp.Warp-Stable", "co.zeit.hyper", "com.raphaelamorim.rio",
+    "org.tabby", "io.alacritty",
+]
+let recentCopyWindow: TimeInterval = 90
+var lastPasteboardCount = NSPasteboard.general.changeCount
+var lastPasteboardChange = Date.distantPast
+
+func startPasteboardTracker() {
+    let t = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
+        let c = NSPasteboard.general.changeCount
+        if c != lastPasteboardCount { lastPasteboardCount = c; lastPasteboardChange = Date() }
+    }
+    RunLoop.main.add(t, forMode: .common)
+}
+
+func recentTerminalCopy() -> String? {
+    guard let id = NSWorkspace.shared.frontmostApplication?.bundleIdentifier, terminalBundleIDs.contains(id),
+          Date().timeIntervalSince(lastPasteboardChange) < recentCopyWindow,
+          let text = NSPasteboard.general.string(forType: .string),
+          !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+    log("selectedText: terminal, using the clipboard copied \(Int(Date().timeIntervalSince(lastPasteboardChange)))s ago (\(text.count) chars)")
+    return text
+}
+
+/// Terminals clear their selection on the shortcut's own keypress (Ghostty: selection-clear-on-typing), before Lattice
+/// can read it. So while a terminal is in front, remember its latest selection for a moment and use that.
+let selectionLock = NSLock()
+var cachedSelection: (text: String, app: String, time: Date)?
+var lastSeenSelectionLength = -1
+
+func frontTerminalID() -> String? {
+    guard let id = NSWorkspace.shared.frontmostApplication?.bundleIdentifier, terminalBundleIDs.contains(id) else { return nil }
+    return id
+}
+
+func startTerminalSelectionTracker() {
+    let q = DispatchQueue(label: "lattice.selection-tracker", qos: .utility)
+    let t = DispatchSource.makeTimerSource(queue: q)
+    t.schedule(deadline: .now(), repeating: .milliseconds(150))
+    t.setEventHandler {
+        guard AXIsProcessTrusted(), let id = frontTerminalID() else { return }
+        let text = axSelectedText(verbose: false)
+        selectionLock.lock(); defer { selectionLock.unlock() }
+        if let text, !text.isEmpty {
+            cachedSelection = (text, id, Date())
+        }
+        let len = text?.count ?? 0
+        if len != lastSeenSelectionLength { lastSeenSelectionLength = len; log("watch: \(id) selection is now \(len) chars") }
+    }
+    t.resume()
+    trackerTimer = t
+}
+var trackerTimer: DispatchSourceTimer?
+
+func recentTerminalSelection() -> String? {
+    guard let id = frontTerminalID() else { return nil }
+    selectionLock.lock(); defer { selectionLock.unlock() }
+    guard let c = cachedSelection, c.app == id, Date().timeIntervalSince(c.time) < 1 else { return nil }
+    log("selectedText: terminal selection from \(Int(Date().timeIntervalSince(c.time) * 1000)) ms ago (\(c.text.count) chars)")
+    return c.text
 }
 
 func selectedText() -> String? {
@@ -283,12 +371,22 @@ func selectedText() -> String? {
         log("selectedText: ax api got \(s.count) chars")
         return s
     }
-    // 2) Fallback: send Cmd+C and read the clipboard (previous behavior).
+    // 2) Terminals: the selection the moment before the shortcut's keypress cleared it.
+    if let s = recentTerminalSelection() { return s }
+    // 3) Fallback: send Cmd+C and read the clipboard (previous behavior).
     let pb = NSPasteboard.general
     let saved = pb.string(forType: .string)
     let before = pb.changeCount
     log("selectedText: trusted=\(AXIsProcessTrusted())")
     let src = CGEventSource(stateID: .combinedSessionState)
+    // The shortcut's own keys are usually still held. If they were still down, the app would see
+    // e.g. Ctrl+Opt+Cmd+C instead of Cmd+C and ignore it (terminals do), so wait for release first.
+    let held: CGEventFlags = [.maskShift, .maskControl, .maskAlternate, .maskCommand]
+    var waited = 0
+    while !CGEventSource.flagsState(.combinedSessionState).intersection(held).isEmpty && waited < 60 {
+        Thread.sleep(forTimeInterval: 0.025); waited += 1
+    }
+    log("selectedText: waited \(waited * 25) ms for modifier release")
     for down in [true, false] {
         let e = CGEvent(keyboardEventSource: src, virtualKey: 8, keyDown: down) // C
         e?.flags = .maskCommand
@@ -297,7 +395,9 @@ func selectedText() -> String? {
     for _ in 0..<20 where pb.changeCount == before { Thread.sleep(forTimeInterval: 0.025) }
     let text = pb.changeCount != before ? pb.string(forType: .string) : nil
     log("selectedText: clip fallback got \(text?.count ?? -1) chars")
-    if let saved, text != nil { pb.clearContents(); pb.setString(saved, forType: .string) }
+    if text == nil { return recentTerminalCopy() }
+    if let saved { pb.clearContents(); pb.setString(saved, forType: .string) }
+    lastPasteboardCount = pb.changeCount   // our own copy and restore are not a user copy
     return text
 }
 
@@ -318,6 +418,8 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         reader.onChange = { [weak self] in self?.refreshTitle(); self?.hud?.sync() }
         refreshTitle()
         registerHotKeys()
+        startPasteboardTracker()
+        startTerminalSelectionTracker()
         DispatchQueue.global().async { self.loadVoices() }
     }
 
@@ -442,10 +544,13 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc func readSel() {
+        let frontName = NSWorkspace.shared.frontmostApplication?.localizedName ?? "?"
+        log("readSel: front=\(frontName) trusted=\(AXIsProcessTrusted())")
         if reader.isActive && !reader.isPaused { reader.stop(); return }
         guard AXIsProcessTrusted() else { needAccessibility(); return }
         DispatchQueue.global().async {
             if let t = selectedText(), !t.isEmpty { DispatchQueue.main.async { self.reader.start(text: t) } }
+            else { DispatchQueue.main.async { NSSound.beep() } }
         }
     }
     @objc func pause() { reader.togglePause() }

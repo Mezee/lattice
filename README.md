@@ -59,13 +59,24 @@ To start at login, add it under **System Settings → General → Login Items**.
 
 | Action | How |
 | --- | --- |
-| Read the selected text | **⌃⌥R** (change it under 🔈 → Shortcuts…) |
+| Read the selected text | **⌃⌥R** (change it under the menu bar icon → Shortcuts…) |
 | Stop | Press the shortcut again, or **✕** on the bar |
 | Pause / resume | ⏯ on the bar |
 | Previous / next sentence | ⏮ / ⏭ on the bar |
 | Choose a voice | 🔈 → Voice |
 | Change the accent colour | 🔈 → Accent Color… (a sample word shows while you pick) |
 | Fix a pronunciation | 🔈 → Edit Pronunciations… |
+
+### Terminals
+
+Lattice reads a normal selection in Terminal, Ghostty, iTerm2 and other terminals, with no copying. Terminals clear
+their selection as soon as a key is pressed, so while a terminal is in front Lattice keeps the latest selection for a
+second to catch it.
+
+Programs that draw their own highlight, such as Claude Code, tmux, vim and `less`, are different: the terminal doesn't
+know about that highlight, so no app can read it. For those, copy the text first (⌘C, or let the program copy on
+select), then press the shortcut. In a terminal, Lattice reads what you copied in the last 90 seconds. If nothing can be
+read it beeps.
 
 ### Pronunciations
 
