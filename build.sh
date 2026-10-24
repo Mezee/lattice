@@ -2,7 +2,7 @@
 # Builds Lattice.app. Usage: ./build.sh [--zip]
 set -e
 cd "$(dirname "$0")"
-VERSION="0.1.3"
+VERSION="0.1.4"
 APP="${APP_DIR:-$HOME/Applications}/Lattice.app"
 # Compile first, so a failed build never removes an installed app.
 swiftc -O -target arm64-apple-macos26.0 main.swift -o .build-arm64

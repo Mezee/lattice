@@ -69,14 +69,12 @@ To start at login, add it under **System Settings → General → Login Items**.
 
 ### Terminals
 
-Lattice reads a normal selection in Terminal, Ghostty, iTerm2 and other terminals, with no copying. Terminals clear
-their selection as soon as a key is pressed, so while a terminal is in front Lattice keeps the latest selection for a
-second to catch it.
+Lattice reads a normal selection in Terminal, Ghostty, iTerm2 and other terminals, with no copying.
 
 Programs that draw their own highlight, such as Claude Code, tmux, vim and `less`, are different: the terminal doesn't
 know about that highlight, so no app can read it. For those, copy the text first (⌘C, or let the program copy on
-select), then press the shortcut. In a terminal, Lattice reads what you copied in the last 90 seconds. If nothing can be
-read it beeps.
+select), then press the shortcut. In a terminal, Lattice reads text you copied in the last 90 seconds, and never an
+older clipboard. If nothing can be read it beeps.
 
 ### Pronunciations
 
